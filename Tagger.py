@@ -16,7 +16,9 @@ class CRFTrain:
             self.full_set = self.load_tags(pickleFile)
         elif 'folder' in kwargs:
             folderFile = kwargs.get('folder', None)
-            print("Reading from pickle:" + str(folderFile))
+            if(folderFile[-1] != '\\'):
+                folderFile = folderFile + '\\'
+            print("Reading from folder:" + str(folderFile))
             annotations = self.get_all_annotations_in_folder(folderFile)
             self.full_set = []
             for ann in annotations:
