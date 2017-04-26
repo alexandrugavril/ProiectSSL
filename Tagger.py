@@ -1,5 +1,7 @@
 import argparse
 import sys
+import numpy as np
+import matplotlib.pyplot as plt
 from CRFTrain import CRFTrain
 
 if __name__ == "__main__":
@@ -16,9 +18,12 @@ if __name__ == "__main__":
     else:
         parser.print_help()
         sys.exit(-1)
+    f1scores = []
+    f1score = crftrain.train(test_size=0.2, max_iterations=100)
+    #plt.plot(range(20,200), f1scores)
+    #plt.savefig("F1Scores20.200Type.png")
 
-    crftrain.train(test_size=0.2)
-    print("F1 Score: " + str(crftrain.test_set_test()))
+    #print("F1 Score: " + str(crftrain.test_set_test()))d
 
     crftrain.get_annotations_for_sentence("When was Superman born")
     crftrain.get_annotations_for_sentence("When was the Battle of Gettysburg held")

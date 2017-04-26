@@ -4,6 +4,7 @@ import untangle
 import pickle
 import sklearn_crfsuite
 from sklearn_crfsuite import metrics
+from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import train_test_split
 
 class CRFTrain:
@@ -31,6 +32,7 @@ class CRFTrain:
         features = {
             'pos' : postag,
             'word' : word,
+            'postag': postag[:2],
             'BOS' : False,
             'EOS' : False
         }
@@ -102,7 +104,7 @@ class CRFTrain:
         print(ann_sent)
         return ann_sent
 
-    def train(self, test_size=0.2):
+    def train(self, test_size=0.2, max_iterations=100, fold5valid=False ):
         full_set_labels = []
         for sent in self.full_set:
             set_lab = []
@@ -118,17 +120,79 @@ class CRFTrain:
         self.x_test = [self.sent2features(s) for s in self.x_test]
 
         print("Starting Training on " + str(len(self.x_train)) + " sentences...")
+        batch_size = len(self.x_train) / 5
+        scores = []
+        if fold5valid:
+            for i in range(5):
+                self.crf = sklearn_crfsuite.CRF(
+                    algorithm='lbfgs',
+                    c1=0.1,
+                    c2=0.1,
+                    max_iterations=max_iterations,
+                    all_possible_transitions=True
+                    )
 
-        self.crf = sklearn_crfsuite.CRF(
-        algorithm='lbfgs',
-        c1=0.1,
-        c2=0.1,
-        max_iterations=100,
-        all_possible_transitions=True
-        )
-        self.crf.fit(self.x_train, self.y_train)
-        self.trained = True
-        print("Finished training...")
+                indices = range(i*batch_size, (i+1)*batch_size)
+                train_batch = [i for j, i in enumerate(self.x_train) if j not in indices]
+                test_batch = [i for j, i in enumerate(self.x_train) if j in indices]
+
+                train_labels = [i for j, i in enumerate(self.y_train) if j not in indices]
+                test_labels = [i for j, i in enumerate(self.y_train) if j in indices]
+
+                self.crf.fit(train_batch, train_labels)
+                labels = list(self.crf.classes_)
+                labels.remove("N")
+                y_pred = self.crf.predict(test_batch)
+                val = metrics.flat_f1_score(test_labels, y_pred,
+                                  average='weighted', labels=labels)
+                scores.append(val)
+
+            import numpy
+            scores = numpy.array(scores)
+            print("5 Fold scores:" + str(scores))
+            f1score = scores.mean(), scores.std() * 2
+            print("F1 Score: %0.2f (+/- %0.2f)" % (f1score))
+
+            #self.crf.fit(self.x_train, self.y_train)
+            self.trained = True
+            print("Finished training...")
+            return f1score
+
+        else:
+            import scipy
+            from sklearn.metrics import make_scorer
+            from sklearn.grid_search import RandomizedSearchCV
+
+            self.crf = sklearn_crfsuite.CRF(
+                algorithm='lbfgs',
+                all_possible_transitions=True
+            )
+            params_space = {
+                'c1': scipy.stats.expon(scale=0.5),
+                'c2': scipy.stats.expon(scale=0.05),
+                'max_iterations': range(20,100),
+            }
+            self.crf.fit(self.x_train, self.y_train)
+            labels = list(self.crf.classes_)
+            labels.remove('N')
+            # use the same metric for evaluation
+            f1_scorer = make_scorer(metrics.flat_f1_score,
+                                    average='weighted', labels=labels)
+
+            # search
+            rs = RandomizedSearchCV(self.crf, params_space,
+                                    cv=5,
+                                    verbose=1,
+                                    n_jobs=-1,
+                                    n_iter=100,
+                                    scoring=f1_scorer)
+            rs.fit(self.x_train, self.y_train)
+            # crf = rs.best_estimator_
+            print('best params:', rs.best_params_)
+            print('best CV score:', rs.best_score_)
+            print('model size: {:0.2f}M'.format(rs.best_estimator_.size_ / 1000000))
+            self.trained = True
+            return rs
 
     def sent2features(self, sent):
         return [self.word2features(sent, i) for i in range(len(sent))]
